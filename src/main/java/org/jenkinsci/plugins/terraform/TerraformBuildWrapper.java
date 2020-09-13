@@ -85,6 +85,8 @@ public class TerraformBuildWrapper extends BuildWrapper {
     private final boolean doDestroy;
     private final boolean doGetUpdate;
     private final boolean doNotApply;
+    private final boolean doNotInit;
+    private final boolean doNotValidate;
     private final Configuration config;
     private final String terraformInstallation;
     private FilePath stateFile;
@@ -99,11 +101,13 @@ public class TerraformBuildWrapper extends BuildWrapper {
 
 
     @DataBoundConstructor
-    public TerraformBuildWrapper(String variables, String terraformInstallation, boolean doGetUpdate, boolean doNotApply, boolean doDestroy, Configuration config) {
+    public TerraformBuildWrapper(String variables, String terraformInstallation, boolean doGetUpdate, boolean doNotApply, boolean doNotInit, boolean doNotValidate, boolean doDestroy, Configuration config) {
         this.config = config;
         this.doDestroy = doDestroy;
         this.doGetUpdate = doGetUpdate;
         this.doNotApply = doNotApply;
+        this.doNotInit = doNotInit;
+        this.doNotValidate = doNotValidate;
         this.variables = variables;
         this.terraformInstallation = terraformInstallation;
     }
@@ -151,6 +155,24 @@ public class TerraformBuildWrapper extends BuildWrapper {
 
     public boolean getdoNotApply() {
         return this.doNotApply;
+    }
+
+    public boolean doNotInit() {
+        return this.doNotInit;
+    }
+
+
+    public boolean getdoNotInit() {
+        return this.doNotInit;
+    }
+
+    public boolean doNotValidate() {
+        return this.doNotValidate;
+    }
+
+
+    public boolean getdoNotValidate() {
+        return this.doNotValidate;
     }
 
 
@@ -225,6 +247,46 @@ public class TerraformBuildWrapper extends BuildWrapper {
         }
     }
 
+    public void executeInit(AbstractBuild build, final Launcher launcher, final BuildListener listener) throws Exception {
+        ArgumentListBuilder args = new ArgumentListBuilder();
+        EnvVars env = build.getEnvironment(listener);
+        setupWorkspace(build, env);
+
+        String executable = getExecutable(env, listener, launcher);
+        args.add(executable);
+
+        args.add("init");
+        args.add("-input=false");
+        args.add("-backend=false");
+
+        LOGGER.info("Launching Terraform Init: "+args.toString());
+
+        int result = launcher.launch().pwd(workspacePath.getRemote()).cmds(args).stdout(listener).join();
+
+        if (result != 0) {
+            throw new Exception("Terraform Init failed: "+ result);
+        }
+    }
+
+    public void executeValidate(AbstractBuild build, final Launcher launcher, final BuildListener listener) throws Exception {
+        ArgumentListBuilder args = new ArgumentListBuilder();
+        EnvVars env = build.getEnvironment(listener);
+        setupWorkspace(build, env);
+
+        String executable = getExecutable(env, listener, launcher);
+        args.add(executable);
+
+        args.add("validate");
+
+        LOGGER.info("Launching Terraform Validate: "+args.toString());
+
+        int result = launcher.launch().pwd(workspacePath.getRemote()).cmds(args).stdout(listener).join();
+
+        if (result != 0) {
+            throw new Exception("Terraform Validate failed: "+ result);
+        }
+    }
+
     public void executeApply(AbstractBuild build, final Launcher launcher, final BuildListener listener) throws Exception {
         ArgumentListBuilder args = new ArgumentListBuilder();
         EnvVars env = build.getEnvironment(listener);
@@ -264,6 +326,14 @@ public class TerraformBuildWrapper extends BuildWrapper {
             // Inject environment variables
             build.addAction(tfbinAction);
             build.addAction(tfvarAction);
+
+            if (! doNotInit) {
+                executeInit(build, launcher, listener);
+            }
+
+            if (! doNotValidate) {
+                executeValidate(build, launcher, listener);
+            }
 
             if (! doNotApply) {
               executeApply(build, launcher, listener);
